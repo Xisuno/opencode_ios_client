@@ -7,7 +7,7 @@ jobs:
   build:
     # If the build complains about a missing SDK (the project mentions visionOS 26),
     # try changing this to macos-26.
-    runs-on: macos-14
+    runs-on: macos-16
     steps:
       - uses: actions/checkout@v4
 
