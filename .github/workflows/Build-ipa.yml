@@ -18,6 +18,46 @@ jobs:
           sudo xcode-select -s "$XCODE/Contents/Developer"
           xcodebuild -version
 
+      - name: Remove Apple Watch target (it fails to compile against the watchOS SDK)
+        run: |
+          PROJECT=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
+          ruby -e '
+            require "xcodeproj"
+            path = ARGV[0]
+            proj = Xcodeproj::Project.open(path)
+            app = proj.targets.find { |t| t.name == "OpenCodeClient" }
+            abort("OpenCodeClient target not found") unless app
+
+            # 1. drop the dependency on the watch target
+            app.dependencies.select { |d| d.target && d.target.name.include?("Watch") }.each do |d|
+              puts "Removing dependency: #{d.target.name}"
+              d.remove_from_project
+            end
+
+            # 2. drop any "Embed Watch Content" copy phase
+            app.build_phases.select { |ph|
+              ph.is_a?(Xcodeproj::Project::Object::PBXCopyFilesBuildPhase) &&
+                ph.files.any? { |f| f.display_name.to_s.downcase.include?("watch") }
+            }.each do |ph|
+              puts "Removing build phase: #{ph.display_name}"
+              ph.remove_from_project
+            end
+            proj.save
+
+            # 3. drop the watch from the shared scheme so it is not built
+            scheme_path = File.join(Xcodeproj::XCScheme.shared_data_dir(path), "OpenCodeClient.xcscheme")
+            if File.exist?(scheme_path)
+              scheme = Xcodeproj::XCScheme.new(scheme_path)
+              scheme.build_action.entries.reject! { |e|
+                e.buildable_references.any? { |r| r.target_name.include?("Watch") }
+              }
+              scheme.save!
+              puts "Scheme updated"
+            else
+              puts "No shared scheme file found at #{scheme_path}"
+            end
+          ' "$PROJECT"
+
       - name: Build (unsigned)
         run: |
           PROJECT=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
